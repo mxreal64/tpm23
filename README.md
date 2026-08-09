@@ -6,10 +6,12 @@ The standard Trusted Computing Group stack is an over-engineered, unreadable nig
 
 ### Architectural Advantages
 
-* **Strict RAII Handle Management:** No manual Esys_FlushContext tracking. Handles self-clean natively on scope exit. This prevents permanent slot lockups on the physical chip.
-* **C++23 Module Architecture:** Clean translation unit boundary isolation via native modules. Includes tpm23.status, tpm23.core, tpm23.nv, and tpm23.policy.
-* **Hardware Boot-State Sealing:** Locks secrets directly to Platform Configuration Registers (PCRs). It completely refuses decryption if firmware, GRUB, or Secure Boot states change.
+* **Strict RAII Handle Management:** No manual `Esys_FlushContext` tracking. Handles self-clean natively on scope exit, completely preventing permanent context slot lockups on the physical chip.
+* **C++23 Module Architecture:** Clean translation unit boundary isolation via native modules. Features zero-cost module divisions including `tpm23.status`, `tpm23.core`, `tpm23.nv`, `tpm23.policy`, and `tpm23.crypto`.
+* **Hardware Boot-State Sealing:** Locks secrets directly to Platform Configuration Registers (PCRs). It forces physical cryptographic lockdown and denies decryption if the firmware, bootloader, or Secure Boot states change.
 * **Security-Hardened NVRAM Cells:** Enforces strict least-privilege PIN routing out of the box. It explicitly blocks standard Owner privilege-escalation bypass vulnerabilities.
+* **Isolated Asymmetric Execution:** Generates and isolates restricted RSA-2048 signing keys entirely within the secure processor silicon. The private prime components never touch host application memory.
+* **Compile-Time Factory Unification:** Leverages lazy modern C++ template inference (`pipeline.get<T>()`) to bypass cross-module boundary linkage ambiguities under GCC, keeping the library visually monolithic.
 * **Bitwise Error Diagnostics:** Translates cryptic 32-bit layered TCG hex error blocks into immediate plain text troubleshooting hints.
 
 ### Vulnerability Mitigation: The NVRAM Owner Bypass
