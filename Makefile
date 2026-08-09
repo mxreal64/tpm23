@@ -1,4 +1,4 @@
-CXX      := g++
+CXX      := g++ #screwclang
 CXXFLAGS := -std=c++23 -fmodules-ts -O3 -Wall -Wextra -fPIC
 LDLIBS   := -ltss2-esys
 
@@ -7,11 +7,19 @@ TARGET   := libtpm23.a
 MODULE_INTERFACES := status.cppm nv.cppm policy.cppm crypto.cppm core.cppm tpm23.cppm
 OBJS              := status.o nv.o policy.o crypto.o core.o tpm23.o
 
+STD_GCM   := gcm.cache/std.gcm
+
 .PHONY: all clean test
 
 all: $(TARGET)
 
-status.o: src/status.cppm
+# The magic target: Compiles std.gcm automatically using GCC's internal search path
+$(STD_GCM):
+	@echo "[GCC] Standard module cache missing. Automatically compiling C++23 'import std;' module..."
+	$(CXX) $(CXXFLAGS) -fsearch-include-path -c bits/std.cc
+
+# Chain the standard module compilation step directly into your first local module interface
+status.o: src/status.cppm $(STD_GCM)
 	@echo "[GCC] Translating module: tpm23.status..."
 	$(CXX) $(CXXFLAGS) -c src/status.cppm -o status.o
 
