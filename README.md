@@ -5,6 +5,7 @@ A modern, zero-overhead C++23 Module wrapper frontend for the TPM 2.0 Enhanced S
 The standard Trusted Computing Group stack is an over-engineered, unreadable nightmare of legacy C idioms, manual garbage collection, and dangerous type-punning. tpm23 completely eliminates this complexity. It replaces unmanaged raw pointers with strict scoped resource guards and exposes a clean, type-safe API designed for the modern C++ ecosystem. 
 
 ### Architectural Advantages
+---
 
 * **Strict RAII Handle Management:** No manual `Esys_FlushContext` tracking. Handles self-clean natively on scope exit, completely preventing permanent context slot lockups on the physical chip.
 * **C++23 Module Architecture:** Clean translation unit boundary isolation via native modules. Features zero-cost module divisions including `tpm23.status`, `tpm23.core`, `tpm23.nv`, `tpm23.policy`, and `tpm23.crypto`.
@@ -15,6 +16,7 @@ The standard Trusted Computing Group stack is an over-engineered, unreadable nig
 * **Bitwise Error Diagnostics:** Translates cryptic 32-bit layered TCG hex error blocks into immediate plain text troubleshooting hints.
 
 ### Vulnerability Mitigation: The NVRAM Owner Bypass
+---
 
 Standard implementations often configure NVRAM storage cells using broad permissions like TPMA_NV_OWNERREAD. This introduces a severe privilege-escalation loophole where any caller with basic platform Owner authentication can bypass the index's unique user PIN entirely. 
 
@@ -38,6 +40,8 @@ Esys_FlushContext(ctx, primary_handle);
 Esys_Free(out_private);
 ```
 
+---
+
 **The Correct Way (tpm23):** 
 
 ```cpp
@@ -50,6 +54,7 @@ auto encrypted_blob = pipeline.seal_secret_to_hardware(data_span);
 ```
 
 ### Software Requirements and Deps
+---
 
 The library interfaces directly with the native Linux TPM 2.0 subsystem via the Enhanced System API. 
 
@@ -58,10 +63,9 @@ The library interfaces directly with the native Linux TPM 2.0 subsystem via the 
 * **Hardware Access:** Root/Sudo privileges or membership in the tpm system group to access /dev/tpm0.
 
 ### Building and Verification
+---
 
 The repository includes a deterministic dependency-mapped Makefile that handles compiling individual module interfaces in their strict linear evaluation order. 
-
-bash
 
 ### Clone the repository
 
@@ -76,7 +80,9 @@ make test
 ```
 
 ### License
+---
 
 copyright mxreal64, 2026
 
 Licensed under the Apache License, Version 2.0 (the "License"). You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0.
+---
