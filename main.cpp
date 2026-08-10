@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
+#include <tss2/tss2_esys.h>
+#include <cstring>
 import tpm23;
 import std;
 
 int main() {
+    // 1. Initialize native device connection
     auto connection = tpm23::secure_pipeline::connect_native_device();
     if (!connection.has_value()) {
         std::println(std::cerr, "Hardware connection failed: {}", connection.error().verbose_explain());
@@ -25,90 +28,104 @@ int main() {
     }
     auto& pipeline = connection.value();
 
-    std::string secret = "Highly_Sensitive_Data_With_PIN_Protection";
-    auto data_span = std::as_bytes(std::span{secret});
-
-    std::string user_pin = "SecurePIN123!";
-    std::string wrong_pin = "WrongPIN999";
-
     std::println("=================================================");
-    std::println("[TEST 1] SEALING PAYLOAD OBJECT WITH AN EXPLICIT PIN...");
+    std::println("[TEST 1] VALIDATING FLUENT POLICY BUILDER CHAIN...");
     std::println("=================================================");
 
-    auto seal_res = pipeline.seal_secret_to_hardware(data_span, 0, user_pin);
-    if (!seal_res.has_value()) {
-        std::println(std::cerr, "Failed to seal data with password: {}", seal_res.error().verbose_explain());
-        return 1;
-    }
-    auto encrypted_blob = seal_res.value();
-    std::println("Success! Blob generated and bound to PIN rules.");
+    auto policy_engine = pipeline.get<tpm23::pcr_policy>();
 
-    // Intentional verification failure check
-    std::println("\nTesting intentional security block by passing an invalid PIN...");
-    auto bad_unseal_res = pipeline.unseal_secret_from_hardware(encrypted_blob, wrong_pin);
-    if (!bad_unseal_res.has_value()) {
-        std::println("Confirmed Secure: TPM blocked extraction loop completely! Reported Code Details: \n  -> {}",
-                     bad_unseal_res.error().verbose_explain());
-    } else {
-        std::println(std::cerr, "CRITICAL ERROR: Hardware released secret data despite an invalid PIN!");
-        return 1;
-    }
+    // Monadic policy builder chaining
+    auto compiled_policy_res = policy_engine.build()
+    .require_pcr(7)
+    .or_else([](auto& alternative_branch) {
+        alternative_branch.require_auth();
+    })
+    .compile();
 
-    // Verified correct path recovery check
-    std::println("\nTesting verified access tracking loop by passing the accurate PIN...");
-    auto clean_unseal_res = pipeline.unseal_secret_from_hardware(encrypted_blob, user_pin);
-    if (!clean_unseal_res.has_value()) {
-        std::println(std::cerr, "Failed valid unsealing step: {}", clean_unseal_res.error().verbose_explain());
+    if (!compiled_policy_res.has_value()) {
+        std::println(std::cerr, " Fluent Policy Builder Compilation Failed: {}", compiled_policy_res.error().verbose_explain());
         return 1;
     }
-    std::string recovered_string(reinterpret_cast<char*>(clean_unseal_res.value().data()), clean_unseal_res.value().size());
-    std::println("Success! Recovered Protected Payload string: \n  -> {}", recovered_string);
+    std::println(" Success! Complex branching policy digest generated safely.");
 
     std::println("\n=================================================");
-    std::println("[TEST 2] WRITING TO NVRAM STORAGE UNDER PIN AUTH RULES...");
+    std::println("[TEST 2] GENERATING SILICON-BOUND ASYMMETRIC KEY PAIR...");
     std::println("=================================================");
 
-    auto nv_hardware = pipeline.nv();
-    std::uint32_t slot_id = 15;
-    std::string nv_payload = "Persistent_Protected_NVRAM_Payload";
-    auto nv_span = std::as_bytes(std::span{nv_payload});
+    auto crypto_engine = pipeline.get<tpm23::key_engine>();
 
-    std::println("Burning string payload into silicon storage slot 15 locked by PIN authentication...");
-    auto write_err = nv_hardware.write_index(slot_id, nv_span, user_pin);
-    if (!write_err.ok()) {
-        std::println(std::cerr, "NV Write Failed: {}", write_err.verbose_explain());
+    // Manual parent template setup
+    TPM2B_PUBLIC parent_template{};
+    parent_template.publicArea.type = TPM2_ALG_RSA;
+    parent_template.publicArea.nameAlg = TPM2_ALG_SHA256;
+    parent_template.publicArea.objectAttributes = (TPMA_OBJECT_USERWITHAUTH | TPMA_OBJECT_RESTRICTED |
+    TPMA_OBJECT_DECRYPT | TPMA_OBJECT_FIXEDTPM |
+    TPMA_OBJECT_FIXEDPARENT | TPMA_OBJECT_SENSITIVEDATAORIGIN);
+    parent_template.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM2_ALG_AES;
+    parent_template.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    parent_template.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM2_ALG_CFB;
+    parent_template.publicArea.parameters.rsaDetail.scheme.scheme = TPM2_ALG_NULL;
+    parent_template.publicArea.parameters.rsaDetail.keyBits = 2048;
+    parent_template.publicArea.parameters.rsaDetail.exponent = 0;
+
+    TPM2B_SENSITIVE_CREATE sensitive_create{};
+    TPM2B_DATA outside_info{};
+    TPML_PCR_SELECTION creation_pcr{};
+    ESYS_TR primary_handle = ESYS_TR_NONE;
+
+    // Create primary root handle in owner hierarchy
+    TSS2_RC rc = Esys_CreatePrimary(
+        pipeline.context(), ESYS_TR_RH_OWNER,
+                                    ESYS_TR_PASSWORD, ESYS_TR_NONE, ESYS_TR_NONE,
+                                    &sensitive_create, &parent_template, &outside_info, &creation_pcr,
+                                    &primary_handle, nullptr, nullptr, nullptr, nullptr
+    );
+    if (rc != TSS2_RC_SUCCESS) {
+        std::println(std::cerr, "Primary generation failed: 0x{:X}", rc);
         return 1;
     }
 
-    std::println("\nTesting intentional security block by trying to read NVRAM via an invalid PIN...");
-    auto bad_nv_read = nv_hardware.read_index(slot_id, wrong_pin);
-    if (!bad_nv_read.has_value()) {
-        std::println("Confirmed Secure: TPM blocked NVRAM flash extraction! Reported Code Details: \n  -> {}",
-                     bad_nv_read.error().verbose_explain());
+    // Generate asymmetric key pair
+    auto key_res = crypto_engine.generate_signing_key(primary_handle);
+    if (!key_res.has_value()) {
+        std::println(std::cerr, "Asymmetric generation failed: {}", key_res.error().verbose_explain());
+        Esys_FlushContext(pipeline.context(), primary_handle);
+        return 1;
+    }
+    auto [priv_blob, pub_blob] = std::move(key_res.value());
+    std::println(" Success! RSA-2048 signing parameters generated inside chip.");
+
+    // Load key parameters back to hardware
+    ESYS_TR signing_key_handle = ESYS_TR_NONE;
+    TPM2B_PRIVATE priv_struct_aligned{};
+    TPM2B_PUBLIC pub_struct_aligned{};
+    std::memcpy(&priv_struct_aligned, priv_blob.data(), sizeof(TPM2B_PRIVATE));
+    std::memcpy(&pub_struct_aligned, pub_blob.data(), sizeof(TPM2B_PUBLIC));
+
+    rc = Esys_Load(
+        pipeline.context(), primary_handle,
+                   ESYS_TR_PASSWORD, ESYS_TR_NONE, ESYS_TR_NONE,
+                   &priv_struct_aligned, &pub_struct_aligned, &signing_key_handle
+    );
+    if (rc != TSS2_RC_SUCCESS) {
+        std::println(std::cerr, "Failed to load key, code: 0x{:X}", rc);
+        Esys_FlushContext(pipeline.context(), primary_handle);
+        return 1;
+    }
+
+    // Perform signing operation
+    std::array<std::byte, 32> mock_sha256_digest{};
+    std::fill(mock_sha256_digest.begin(), mock_sha256_digest.end(), std::byte{0xA5});
+    auto sig_res = crypto_engine.sign_hash(signing_key_handle, mock_sha256_digest);
+    if (!sig_res.has_value()) {
+        std::println(std::cerr, "Hardware sign operation failed: {}", sig_res.error().verbose_explain());
     } else {
-        std::println(std::cerr, "CRITICAL ERROR: Hardware released persistent NV RAM content despite an invalid PIN!");
-        auto purge_status = nv_hardware.release_index(slot_id);
-        if (!purge_status.ok()) std::println(std::cerr, "Emergency purge breakdown.");
-        return 1;
+        std::println(" Success! Digital Signature produced by silicon.");
+        std::println(" Signature Size: {} bytes.", sig_res.value().size());
     }
 
-    std::println("\nTesting verified access to NVRAM flash using the accurate PIN...");
-    auto clear_nv_read = nv_hardware.read_index(slot_id, user_pin);
-    if (!clear_nv_read.has_value()) {
-        std::println(std::cerr, "Failed valid NV read step: {}", clear_nv_read.error().verbose_explain());
-        auto purge_status = nv_hardware.release_index(slot_id);
-        if (!purge_status.ok()) std::println(std::cerr, "Emergency purge breakdown.");
-        return 1;
-    }
-
-    std::string recovered_nv_string(reinterpret_cast<char*>(clear_nv_read.value().data()), clear_nv_read.value().size());
-    std::println("Success! Recovered Persistent NV RAM Payload: \n  -> {}", recovered_nv_string);
-
-    std::println("\nPurging hardware flash index allocation space...");
-    auto release_err = nv_hardware.release_index(slot_id);
-    if (!release_err.ok()) {
-        std::println(std::cerr, "Final NV Release Failed: {}", release_err.verbose_explain());
-        return 1;
-    }
-    std::println("Full verification suite completed successfully!");
+    // Cleanup handles
+    Esys_FlushContext(pipeline.context(), signing_key_handle);
+    Esys_FlushContext(pipeline.context(), primary_handle);
+    return 0;
 }
