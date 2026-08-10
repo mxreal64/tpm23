@@ -79,6 +79,10 @@ make
 make test
 ```
 
+### Suggestions/Feedback
+
+Suggestions & feedback are always invited, to improve this project obv. Either contact me on Reddit at https://reddit.com/user/mxreal64 or on the [r/projects thread](https://www.reddit.com/r/projects/comments/1vk7uvr/look/) or open an issue here at https://github.com/mxreal64/tpm23/issues. For feature/code suggestions, ensure your code compiles cleanly (no warns/errors) under -`fsanitize=address,undefined`.
+
 ### License
 ---
 
