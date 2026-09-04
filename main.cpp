@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+module;
 
 #include <tss2/tss2_esys.h>
 #include <cstring>
+
 import tpm23;
 import std;
 
