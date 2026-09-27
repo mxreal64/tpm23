@@ -44,8 +44,8 @@ export namespace tpm23 {
         }
 
         struct session_guard {
-            ESYS_CONTEXT* ctx;
-            ESYS_TR handle;
+            ESYS_CONTEXT* ctx = nullptr;
+            ESYS_TR handle = ESYS_TR_NONE;
             ~session_guard() {
                 if (handle != ESYS_TR_NONE && ctx != nullptr) {
                     Esys_FlushContext(ctx, handle);
@@ -61,7 +61,6 @@ export namespace tpm23 {
             };
 
             ESYS_TR session_handle = ESYS_TR_NONE;
-
             TSS2_RC rc = Esys_StartAuthSession(
                 m_ctx, ESYS_TR_NONE, ESYS_TR_NONE,
                 ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
@@ -223,7 +222,6 @@ export namespace tpm23 {
             };
 
             ESYS_TR session_handle = ESYS_TR_NONE;
-
             TSS2_RC rc = Esys_StartAuthSession(
                 m_ctx, ESYS_TR_NONE, ESYS_TR_NONE,
                 ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
@@ -233,7 +231,6 @@ export namespace tpm23 {
             if (rc != TSS2_RC_SUCCESS) [[unlikely]] return std::unexpected(status{rc});
 
             TPML_PCR_SELECTION pcr_selection = build_pcr_selection(pcr_mask);
-
             rc = Esys_PolicyPCR(m_ctx, session_handle, ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE, nullptr, &pcr_selection);
             if (rc != TSS2_RC_SUCCESS) [[unlikely]] {
                 Esys_FlushContext(m_ctx, session_handle);

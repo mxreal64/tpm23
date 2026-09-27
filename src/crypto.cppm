@@ -17,6 +17,7 @@
 module;
 
 #include <tss2/tss2_esys.h>
+#include <tss2/tss2_mu.h>
 #include <cstring>
 
 export module tpm23.crypto;
@@ -47,7 +48,6 @@ export namespace tpm23 {
             TPM2B_PUBLIC object_template{};
             object_template.publicArea.type = TPM2_ALG_RSA;
             object_template.publicArea.nameAlg = TPM2_ALG_SHA256;
-
             object_template.publicArea.objectAttributes = (TPMA_OBJECT_USERWITHAUTH |
             TPMA_OBJECT_SIGN_ENCRYPT |
             TPMA_OBJECT_FIXEDTPM |
@@ -72,13 +72,31 @@ export namespace tpm23 {
             if (rc != TSS2_RC_SUCCESS) [[unlikely]] return std::unexpected(status{rc});
 
             std::vector<std::byte> priv_bytes(sizeof(TPM2B_PRIVATE));
-            std::vector<std::byte> pub_bytes(sizeof(TPM2B_PUBLIC));
-
-            std::memcpy(priv_bytes.data(), out_private, sizeof(TPM2B_PRIVATE));
-            std::memcpy(pub_bytes.data(), out_public, sizeof(TPM2B_PUBLIC));
-
+            std::size_t priv_offset = 0;
+            rc = Tss2_MU_TPM2B_PRIVATE_Marshal(
+                out_private,
+                reinterpret_cast<uint8_t*>(priv_bytes.data()),
+                                               priv_bytes.size(),
+                                               &priv_offset
+            );
             Esys_Free(out_private);
+            if (rc != TSS2_RC_SUCCESS) {
+                Esys_Free(out_public);
+                return std::unexpected(status{rc});
+            }
+            priv_bytes.resize(priv_offset);
+
+            std::vector<std::byte> pub_bytes(sizeof(TPM2B_PUBLIC));
+            std::size_t pub_offset = 0;
+            rc = Tss2_MU_TPM2B_PUBLIC_Marshal(
+                out_public,
+                reinterpret_cast<uint8_t*>(pub_bytes.data()),
+                                              pub_bytes.size(),
+                                              &pub_offset
+            );
             Esys_Free(out_public);
+            if (rc != TSS2_RC_SUCCESS) return std::unexpected(status{rc});
+            pub_bytes.resize(pub_offset);
 
             return signature_pair{ .private_blob = std::move(priv_bytes), .public_blob = std::move(pub_bytes) };
         }
@@ -101,7 +119,6 @@ export namespace tpm23 {
             validation.digest.size = 0;
 
             TPMT_SIGNATURE* signature = nullptr;
-
             TSS2_RC rc = Esys_Sign(
                 m_ctx, loaded_key_handle,
                 ESYS_TR_PASSWORD, ESYS_TR_NONE, ESYS_TR_NONE,

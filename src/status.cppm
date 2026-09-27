@@ -29,6 +29,7 @@ export namespace tpm23 {
         inline constexpr uint32_t payload_too_large = app_layer | 0x0001;
         inline constexpr uint32_t corrupted_payload = app_layer | 0x0002;
         inline constexpr uint32_t size_mismatch     = app_layer | 0x0003;
+        inline constexpr uint32_t marshal_failure   = app_layer | 0x0004;
     }
 
     struct status {
@@ -44,6 +45,7 @@ export namespace tpm23 {
             if (raw_code == errors::payload_too_large) return "TPM_FRONTEND_ERROR: Plaintext payload exceeds size constraint.";
             if (raw_code == errors::corrupted_payload) return "TPM_FRONTEND_ERROR: Serialized data blob is corrupted or too short.";
             if (raw_code == errors::size_mismatch)     return "TPM_FRONTEND_ERROR: Input payload structure size fields mismatch underlying buffer allocation.";
+            if (raw_code == errors::marshal_failure)   return "TPM_FRONTEND_ERROR: TSS2 canonical marshaling/unmarshaling failure.";
 
             uint32_t layer = (raw_code >> 16) & 0xFF;
             uint32_t error = raw_code & 0xFFFF;
@@ -56,7 +58,9 @@ export namespace tpm23 {
             } else if (error == 0x1C3) {
                 hint = " (Hint: Ticket validation failed. For unrestricted signing keys, validation.hierarchy must be TPM2_RH_NULL.)";
             }
-            return std::format("TPM_ERROR [0x{:08X}]: Layer 0x{:X} reported internal breakdown 0x{:X}.{}", raw_code, layer, error, hint);
+
+            return std::format("TPM_ERROR [0x{:08X}]: Layer 0x{:X} reported internal breakdown 0x{:X}.{}",
+                               raw_code, layer, error, hint);
         }
     };
 
