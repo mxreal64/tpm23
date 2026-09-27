@@ -1,5 +1,5 @@
 CXX      := g++
-CXXFLAGS := -std=c++23 -fmodules-ts -O3 -Wall -Wextra -fPIC -fsanitize=thread,undefined
+CXXFLAGS := -std=c++23 -fmodules-ts -O3 -Wall -Wextra -fPIC -fsanitize=leak,address,undefined
 LDLIBS   := -ltss2-esys -ltss2-mu
 
 TARGET   := libtpm23.a
