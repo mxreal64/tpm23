@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-module;
 
+module;
 #include <tss2/tss2_esys.h>
 #include <cstring>
 
@@ -36,7 +36,7 @@ int main() {
 
     auto policy_engine = pipeline.get<tpm23::pcr_policy>();
 
-    // Monadic policy builder chaining
+    // Monadic policy builder chaining: specify PCR 7 index
     auto compiled_policy_res = policy_engine.build()
     .require_pcr(7)
     .or_else([](auto& alternative_branch) {
@@ -87,11 +87,13 @@ int main() {
         return 1;
     }
 
+    // Guard to ensure primary_handle is cleanly flushed on all paths
+    tpm23::hardware_handle_guard primary_guard{pipeline.context(), primary_handle};
+
     // Generate asymmetric key pair
     auto key_res = crypto_engine.generate_signing_key(primary_handle);
     if (!key_res.has_value()) {
         std::println(std::cerr, "Asymmetric generation failed: {}", key_res.error().verbose_explain());
-        Esys_FlushContext(pipeline.context(), primary_handle);
         return 1;
     }
     auto [priv_blob, pub_blob] = std::move(key_res.value());
@@ -111,23 +113,23 @@ int main() {
     );
     if (rc != TSS2_RC_SUCCESS) {
         std::println(std::cerr, "Failed to load key, code: 0x{:X}", rc);
-        Esys_FlushContext(pipeline.context(), primary_handle);
         return 1;
     }
 
-    // Perform signing operation
+    tpm23::hardware_handle_guard key_guard{pipeline.context(), signing_key_handle};
+
+    // Perform signing operation with arbitrary mock hash
     std::array<std::byte, 32> mock_sha256_digest{};
     std::fill(mock_sha256_digest.begin(), mock_sha256_digest.end(), std::byte{0xA5});
     auto sig_res = crypto_engine.sign_hash(signing_key_handle, mock_sha256_digest);
     if (!sig_res.has_value()) {
         std::println(std::cerr, "Hardware sign operation failed: {}", sig_res.error().verbose_explain());
-    } else {
-        std::println(" Success! Digital Signature produced by silicon.");
-        std::println(" Signature Size: {} bytes.", sig_res.value().size());
+        return 1;
     }
 
-    // Cleanup handles
-    Esys_FlushContext(pipeline.context(), signing_key_handle);
-    Esys_FlushContext(pipeline.context(), primary_handle);
+    std::println(" Success! Digital Signature produced by silicon.");
+    std::println(" Signature Size: {} bytes.", sig_res.value().size());
+
+    // primary_guard and key_guard automatically flush contexts at end of scope
     return 0;
 }

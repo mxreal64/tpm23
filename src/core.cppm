@@ -28,11 +28,13 @@ import std;
 export namespace tpm23 {
 
     struct hardware_handle_guard {
-        ESYS_CONTEXT* ctx;
-        ESYS_TR handle;
+        ESYS_CONTEXT* ctx = nullptr;
+        ESYS_TR handle = ESYS_TR_NONE;
+
         ~hardware_handle_guard() {
             if (handle != ESYS_TR_NONE && ctx != nullptr) {
                 Esys_FlushContext(ctx, handle);
+                handle = ESYS_TR_NONE;
             }
         }
     };
@@ -97,7 +99,7 @@ export namespace tpm23 {
         ) noexcept -> result<std::vector<std::byte>> {
 
             if (plaintext_data.size() > 128) [[unlikely]] {
-                return std::unexpected(status{0x0001});
+                return std::unexpected(status{errors::payload_too_large});
             }
 
             TPM2B_AUTH empty_auth{};
@@ -138,8 +140,7 @@ export namespace tpm23 {
             object_template.publicArea.nameAlg = TPM2_ALG_SHA256;
 
             if (target_pcr_mask != 0) {
-                object_template.publicArea.objectAttributes = (TPMA_OBJECT_FIXEDTPM |
-                TPMA_OBJECT_FIXEDPARENT);
+                object_template.publicArea.objectAttributes = (TPMA_OBJECT_FIXEDTPM | TPMA_OBJECT_FIXEDPARENT);
                 tpm23::pcr_policy evaluator{m_ctx};
                 auto digest_res = evaluator.calculate_pcr_digest(target_pcr_mask);
                 if (!digest_res.has_value()) return std::unexpected(digest_res.error());
@@ -184,7 +185,7 @@ export namespace tpm23 {
         ) noexcept -> result<std::vector<std::byte>> {
 
             if (sealed_blob.size() < (sizeof(std::uint32_t) + sizeof(TPM2B_PRIVATE) + sizeof(TPM2B_PUBLIC))) [[unlikely]] {
-                return std::unexpected(status{0x0002});
+                return std::unexpected(status{errors::corrupted_payload});
             }
 
             std::uint32_t target_pcr_mask = 0;
@@ -263,7 +264,6 @@ export namespace tpm23 {
             return plaintext;
         }
 
-        // Zero module dependencies, zero forward declarations, zero compiler loops
         template <typename SubsystemType>
         [[nodiscard]] auto get() noexcept -> SubsystemType {
             return SubsystemType{m_ctx};
